@@ -8,60 +8,73 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::task;
 use dotenv::dotenv;
 
-// Estrutura para representar um post do WordPress
 #[derive(Debug, Serialize)]
-struct PostData {
-    title: String,
-    tags: Vec<String>,
-    authors: Vec<String>,
-    html: String,
-    status: String,
+struct AuthorData {
+    autor_id: String,
+    login: String,
+    name: String,
+    email: String,
+    display_name: String,
 }
 
-async fn send_post(client: Client, post_data: PostData) {
+async fn send_author(client: Client, author_data: AuthorData) {
     dotenv().ok();
-    let token = "";
-    println!("send post: { }", post_data.title);
+    let token = env::var("API_TOKEN").unwrap();
+    let api_url = env::var("API_URL").unwrap();
+    let url_req = format!("{}/authors", &api_url);
+    println!("send author: { }", author_data.name);
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));    
 
     let res = client
-        .post(post_api)
+        .post(url_req)
         .headers(headers)
-        .json(&serde_json::json!({ "posts": [post_data] }))
+        .json(&serde_json::json!({ "authors": [author_data] }))
         .send()
         .await;
 
     match res {
         Ok(response) if response.status().is_success() => {
-            println!("Post enviado com sucesso: {}", post_data.title);
+            println!("Autor enviado com sucesso: {}", author_data.name);
         }
         Ok(response) => {
-            eprintln!("Falha ao enviar post: {} - Status: {:?}", post_data.title, response);
+            eprintln!("Falha ao enviar autor: {} - Status: {:?}", author_data.name, response);
         }
         Err(e) => {
-            eprintln!("Erro ao enviar post: {} - Erro: {:?}", post_data.title, e);
+            eprintln!("Erro ao enviar autor: {} - Erro: {:?}", author_data.name, e);
         }
     }
 }
 
-async fn migrate_posts() -> Result<(), Box<dyn std::error::Error>> {
+async fn migrate_authors() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let db_url = env::var("DB_URL").unwrap();
     let connection_opts = mysql::Opts::from_url(&db_url).unwrap();    
     let pool = Pool::new(connection_opts)?;
     let mut conn = pool.get_conn()?;
 
-    let posts: Vec<PostData> = conn
+    let authors: Vec<AuthorData> = conn
         .query_map(
-            "SELECT post_title, post_name, post_content, post_status, post_date FROM wp_posts WHERE post_type = 'post' AND post_status = 'publish'",
-            |(title, slug, html, status, published_at)| PostData {
-                title,
-                slug,
-                html,
-                status,
-                published_at,
+            "SELECT DISTINCT
+                    u.ID AS autor_id,
+                    u.user_login AS login,
+                    u.user_nicename AS name,
+                    u.user_email AS email,
+                    u.display_name AS display_name
+                FROM
+                    wp_users u
+                JOIN
+                    wp_posts p ON u.ID = p.post_author
+                WHERE
+                    p.post_type = 'post' AND
+                    p.post_status = 'publish'",
+            |(autor_id, login, name, email, display_name)| AuthorData {
+                autor_id,
+                login,
+                name,
+                email,
+                display_name,
             },
         ).unwrap();
 
@@ -69,11 +82,11 @@ async fn migrate_posts() -> Result<(), Box<dyn std::error::Error>> {
         .danger_accept_invalid_certs(true)
         .build()
         .unwrap();
-
-    for post in posts {
+    let mut handles = vec![];
+    for author in authors {
         let client_clone = client.clone();
         let handle = task::spawn(async move {
-            send_post(client_clone, post).await;
+            send_author(client_clone, author).await;
         });
         handles.push(handle);
     }
@@ -87,7 +100,7 @@ async fn migrate_posts() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = migrate_posts().await {
+    if let Err(e) = migrate_authors().await {
         eprintln!("Erro durante a migração: {:?}", e);
     }
 }
