@@ -9,12 +9,9 @@ use tokio::task;
 use dotenv::dotenv;
 
 #[derive(Debug, Serialize)]
-struct AuthorData {
-    autor_id: String,
-    login: String,
+struct AuthorData {    
     name: String,
     email: String,
-    display_name: String,
 }
 
 async fn send_author(client: Client, author_data: AuthorData) {
@@ -69,12 +66,9 @@ async fn migrate_authors() -> Result<(), Box<dyn std::error::Error>> {
                 WHERE
                     p.post_type = 'post' AND
                     p.post_status = 'publish'",
-            |(autor_id, login, name, email, display_name)| AuthorData {
-                autor_id,
-                login,
+            |( name, email)| AuthorData {
                 name,
-                email,
-                display_name,
+                email,                
             },
         ).unwrap();
 
