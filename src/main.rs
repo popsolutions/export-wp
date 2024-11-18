@@ -50,7 +50,7 @@ async fn send_author(client: Client, author_data: AuthorData) {
             );
         }
         Ok(response) if response.status().is_server_error() => {
-            error!("request server error: {:?}", &response);
+            error!("request server error: {:?}", &author_data);
             eprintln!(
                 "Falha ao enviar autor: {} - Status: {:?}",
                 author_data.name, response
