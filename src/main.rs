@@ -1,17 +1,20 @@
-use mysql::{Pool, prelude::*};
+use dotenv::dotenv;
+use mysql::{prelude::*, Pool};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::Client;
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::Serialize;
 use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::task;
-use dotenv::dotenv;
+use tracing::{error, info};
 
 #[derive(Debug, Serialize)]
-struct AuthorData {    
+struct AuthorData {
+    id: i32,
     name: String,
     email: String,
+    login: String,
+    password: String,
+    created_at: String,
 }
 
 async fn send_author(client: Client, author_data: AuthorData) {
@@ -21,44 +24,65 @@ async fn send_author(client: Client, author_data: AuthorData) {
     let url_req = format!("{}/authors", &api_url);
     println!("send author: { }", author_data.name);
     let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
-    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));    
-
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+    );
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    info!("config request");
     let res = client
         .post(url_req)
         .headers(headers)
-        .json(&serde_json::json!({ "authors": [author_data] }))
+        .json(&author_data)
         .send()
         .await;
 
     match res {
         Ok(response) if response.status().is_success() => {
+            info!("request send");
             println!("Autor enviado com sucesso: {}", author_data.name);
         }
-        Ok(response) => {
-            eprintln!("Falha ao enviar autor: {} - Status: {:?}", author_data.name, response);
+        Ok(response) if response.status().is_client_error() => {
+            error!("request client: {:?}", &author_data);
+            eprintln!(
+                "Falha ao enviar autor: {} - Status: {:?}",
+                author_data.name, response
+            );
+        }
+        Ok(response) if response.status().is_server_error() => {
+            error!("request server error: {:?}", &response);
+            eprintln!(
+                "Falha ao enviar autor: {} - Status: {:?}",
+                author_data.name, response
+            );
+        }
+
+        Ok(_) => {
+            error!("request not mapped error: {:?}", &res);
         }
         Err(e) => {
+            error!("request error: {:?}", &e);
             eprintln!("Erro ao enviar autor: {} - Erro: {:?}", author_data.name, e);
         }
     }
 }
 
-async fn migrate_authors() -> Result<(), Box<dyn std::error::Error>> {
+async fn migrate_authors() {
     dotenv().ok();
     let db_url = env::var("DB_URL").unwrap();
-    let connection_opts = mysql::Opts::from_url(&db_url).unwrap();    
-    let pool = Pool::new(connection_opts)?;
-    let mut conn = pool.get_conn()?;
+    let connection_opts = mysql::Opts::from_url(&db_url).unwrap();
+    let pool = Pool::new(connection_opts).unwrap();
+    let mut conn = pool.get_conn().unwrap();
 
     let authors: Vec<AuthorData> = conn
         .query_map(
             "SELECT DISTINCT
-                    u.ID AS autor_id,
-                    u.user_login AS login,
+                    u.ID AS id,
                     u.user_nicename AS name,
                     u.user_email AS email,
-                    u.display_name AS display_name
+                    u.user_login AS login,
+                    u.user_pass AS password,
+                    u.user_registered AS created_at
                 FROM
                     wp_users u
                 JOIN
@@ -66,12 +90,17 @@ async fn migrate_authors() -> Result<(), Box<dyn std::error::Error>> {
                 WHERE
                     p.post_type = 'post' AND
                     p.post_status = 'publish'",
-            |( name, email)| AuthorData {
+            |(id, name, email, login, password, created_at)| AuthorData {
+                id,
                 name,
-                email,                
+                email,
+                login,
+                password,
+                created_at,
             },
-        ).unwrap();
-
+        )
+        .unwrap();
+    info!("ok query authors");
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()
@@ -86,15 +115,15 @@ async fn migrate_authors() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for handle in handles {
-        handle.await?;
+        handle.await.unwrap();
     }
-
-    Ok(())
 }
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = migrate_authors().await {
-        eprintln!("Erro durante a migração: {:?}", e);
-    }
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
+    migrate_authors().await;
 }
