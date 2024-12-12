@@ -20,4 +20,7 @@ tracing = "0.1"
 tracing-opentelemetry = "0.23"
 tracing-subscriber = "0.3"
 ammonia = "4.0.0"
+anyhow = "1.0.94"
+base64 = "0.22.1"
+url = "2.5.4"
 

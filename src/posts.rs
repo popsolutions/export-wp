@@ -3,15 +3,28 @@ use dotenv::dotenv;
 use mysql::{prelude::*, Pool};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::Client;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{error, info};
 
-async fn send_post(client: Client, post_data: PostData) {
+use crate::image::send_image;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PostReply {
+    id: String,
+    title: String,
+    slug: String,
+    created_at: String,
+    updated_at: String,
+    author_id: String,
+}
+
+async fn send_post(client: Client, post_data: PostData) -> Option<PostReply> {
     dotenv().ok();
     let token = env::var("API_TOKEN").unwrap();
     let api_url = env::var("API_URL").unwrap();
     let url_req = format!("{}/posts", &api_url);
+
     info!("send post: { }", post_data.title);
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -33,6 +46,8 @@ async fn send_post(client: Client, post_data: PostData) {
         Ok(response) if response.status().is_success() => {
             info!("request send");
             println!("Post enviado com sucesso: {}", post_data.title);
+            let data_res: PostReply = response.json().await.unwrap();
+            Some(data_res)
         }
         Ok(response) if response.status().is_client_error() => {
             error!("request client: {:?}", &post_data);
@@ -40,6 +55,7 @@ async fn send_post(client: Client, post_data: PostData) {
                 "Falha ao enviar post: {} - Status: {:?}",
                 post_data.title, response
             );
+            None
         }
         Ok(response) if response.status().is_server_error() => {
             error!("request server error: {:?}", &post_data);
@@ -47,28 +63,31 @@ async fn send_post(client: Client, post_data: PostData) {
                 "Falha ao enviar post: {} - Status: {:?}",
                 post_data.title, response
             );
+            None
         }
 
         Ok(_) => {
             error!("request not mapped error: {:?}", &res);
+            None
         }
         Err(e) => {
             error!("request error: {:?}", &e);
             eprintln!("Erro ao enviar post: {} - Erro: {:?}", post_data.title, e);
+            None
         }
     }
 }
 
 #[derive(Debug, Serialize, Clone)]
-struct PostData {
-    id: u64,
+pub struct PostData {
+    pub id: u64,
     title: String,
     slug: String,
     html: String,
     created_at: String,
     updated_at: String,
     author_id: String,
-    image_url: Option<String>,
+    pub image_url: Option<String>,
     tags: Option<String>,
 }
 
@@ -124,7 +143,7 @@ pub async fn migrate_posts() {
                 AND p.post_status = 'publish'
                 AND p.post_type = 'post'
                 AND tt.taxonomy = 'category'
-            GROUP BY p.ID",
+            GROUP BY p.ID limit 1",
             |(id, title, slug, html, created_at, updated_at, author_id, image_url, tags)| PostData {
                 id,
                 title,
@@ -146,10 +165,33 @@ pub async fn migrate_posts() {
         .unwrap();
     let mut handles = vec![];
     for post in posts {
-        let client_clone = client.clone();
+        let client_clone_image = client.clone();
+        let client_clone_post = client.clone();
         let handle = tokio::spawn(async move {
             let post_sanitize = post.sanitize();
-            send_post(client_clone, post_sanitize).await;
+            let post_reply = send_post(client_clone_post, post_sanitize).await;
+            if let Some(post_saved) = post_reply {
+                info!("Post reply received: {:?}", &post_saved);
+
+                if let Some(image) = &post.image_url {
+                    send_image(client_clone_image, image, post_saved.id).await;
+                    info!("Image sent");
+                } else {
+                    info!("No image found");
+                }
+            } else {
+                info!("No post reply received");
+            }
+
+            match &post.image_url {
+                Some(image) => {
+                    send_image(client_clone_image, image, post.id).await;
+                    info!("image sended");
+                }
+                None => {
+                    info!("No image found");
+                }
+            }
         });
         handles.push(handle);
     }

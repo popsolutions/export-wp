@@ -3,6 +3,7 @@ use posts::migrate_posts;
 use tags::migrate_tags;
 
 mod authors;
+mod image;
 mod posts;
 mod tags;
 
@@ -13,6 +14,6 @@ async fn main() {
         .init();
 
     // migrate_authors().await;
-    migrate_tags().await;
+    // migrate_tags().await;
     migrate_posts().await;
 }
