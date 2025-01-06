@@ -87,7 +87,7 @@ pub struct PostData {
     created_at: String,
     updated_at: String,
     author_id: String,
-    pub image_url: Option<String>,
+    image_url: Option<String>,
     tags: Option<String>,
 }
 
@@ -105,6 +105,12 @@ impl PostData {
         Self {
             html: clean(&content),
             ..self
+        }
+    }
+    fn image(self) -> String {
+        match self.image_url {
+            Some(image_res) => image_res,
+            None => String::from(""),
         }
     }
 }
@@ -143,7 +149,7 @@ pub async fn migrate_posts() {
                 AND p.post_status = 'publish'
                 AND p.post_type = 'post'
                 AND tt.taxonomy = 'category'
-            GROUP BY p.ID limit 1",
+            GROUP BY p.ID",
             |(id, title, slug, html, created_at, updated_at, author_id, image_url, tags)| PostData {
                 id,
                 title,
@@ -168,29 +174,21 @@ pub async fn migrate_posts() {
         let client_clone_image = client.clone();
         let client_clone_post = client.clone();
         let handle = tokio::spawn(async move {
+            let post_clone = post.clone();
             let post_sanitize = post.sanitize();
+            let image_post = post_clone.image();
             let post_reply = send_post(client_clone_post, post_sanitize).await;
             if let Some(post_saved) = post_reply {
                 info!("Post reply received: {:?}", &post_saved);
 
-                if let Some(image) = &post.image_url {
-                    send_image(client_clone_image, image, post_saved.id).await;
+                if image_post.len() > 0 {
+                    send_image(client_clone_image, &image_post, &post_saved.id).await;
                     info!("Image sent");
                 } else {
-                    info!("No image found");
+                    info!("No image found")
                 }
             } else {
                 info!("No post reply received");
-            }
-
-            match &post.image_url {
-                Some(image) => {
-                    send_image(client_clone_image, image, post.id).await;
-                    info!("image sended");
-                }
-                None => {
-                    info!("No image found");
-                }
             }
         });
         handles.push(handle);

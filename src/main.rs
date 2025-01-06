@@ -1,8 +1,10 @@
 use authors::migrate_authors;
+use health::heathcheck;
 use posts::migrate_posts;
 use tags::migrate_tags;
 
 mod authors;
+mod health;
 mod image;
 mod posts;
 mod tags;
@@ -13,7 +15,8 @@ async fn main() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    // migrate_authors().await;
-    // migrate_tags().await;
+    heathcheck().await;
+    migrate_authors().await;
+    migrate_tags().await;
     migrate_posts().await;
 }

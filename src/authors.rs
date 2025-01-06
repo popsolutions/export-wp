@@ -78,7 +78,7 @@ pub async fn migrate_authors() {
         .query_map(
             "SELECT DISTINCT
                     u.ID AS id,
-                    u.user_nicename AS name,
+                    u.display_name AS name,
                     u.user_email AS email,
                     u.user_login AS login,
                     u.user_pass AS password,
