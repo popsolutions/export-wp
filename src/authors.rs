@@ -2,6 +2,7 @@ use dotenv::dotenv;
 use mysql::{prelude::*, Pool};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::Client;
+use reqwest::tls::Version;
 use serde::Serialize;
 use std::env;
 use tokio::task;
@@ -102,6 +103,7 @@ pub async fn migrate_authors() {
         .unwrap();
     info!("ok query authors");
     let client = Client::builder()
+        .min_tls_version(Version::TLS_1_2)
         .danger_accept_invalid_certs(true)
         .build()
         .unwrap();

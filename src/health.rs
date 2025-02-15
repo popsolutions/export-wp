@@ -3,6 +3,7 @@ use dotenv::dotenv;
 use mysql::{prelude::*, Pool};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::Client;
+use reqwest::tls::Version;
 use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{error, info};
@@ -13,6 +14,7 @@ pub async fn heathcheck() {
     dotenv().ok();
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
+        .min_tls_version(Version::TLS_1_2)
         .build()
         .unwrap();
     let token = env::var("API_TOKEN").unwrap();
