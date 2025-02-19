@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::env;
 use tokio::task;
 use tracing::{error, info};
+use anyhow::{Context, Result};
 
 #[derive(Debug, Serialize)]
 struct AuthorData {
@@ -20,17 +21,19 @@ struct AuthorData {
 
 async fn send_author(client: Client, author_data: AuthorData) {
     dotenv().ok();
-    let token = env::var("API_TOKEN").unwrap();
-    let api_url = env::var("API_URL").unwrap();
+    let token = env::var("API_TOKEN").context("Failed to get API_TOKEN from env").unwrap();
+    let api_url = env::var("API_URL").context("Failed to get API_URL from env").unwrap();
     let url_req = format!("{}/authors", &api_url);
     println!("send author: { }", author_data.name);
+
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        HeaderValue::from_str(&format!("Bearer {}", token)).context("Failed to create authorization header").unwrap(),
     );
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
     info!("config request");
+
     let res = client
         .post(url_req)
         .headers(headers)
@@ -70,10 +73,10 @@ async fn send_author(client: Client, author_data: AuthorData) {
 
 pub async fn migrate_authors() {
     dotenv().ok();
-    let db_url = env::var("DB_URL").unwrap();
-    let connection_opts = mysql::Opts::from_url(&db_url).unwrap();
-    let pool = Pool::new(connection_opts).unwrap();
-    let mut conn = pool.get_conn().unwrap();
+    let db_url = env::var("DB_URL").context("Failed to get DB_URL from env").unwrap();
+    let connection_opts = mysql::Opts::from_url(&db_url).context("Failed to parse DB_URL").unwrap();
+    let pool = Pool::new(connection_opts).context("Failed to create connection pool").unwrap();
+    let mut conn = pool.get_conn().context("Failed to get connection from pool").unwrap();
 
     let authors: Vec<AuthorData> = conn
         .query_map(
