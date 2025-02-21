@@ -103,6 +103,7 @@ fn text_to_html_paragraphs(input: &str) -> String {
 impl PostData {
     fn sanitize(self) -> Self {
         let content = text_to_html_paragraphs(&self.html);
+         
         Self {
             html: clean(&content),
             ..self
@@ -116,14 +117,23 @@ impl PostData {
     }
 }
 
-pub async fn migrate_posts() {
+async fn get_posts() -> Result<Vec<PostData>, String> {
     dotenv().ok();
-    let db_url = env::var("DB_URL").unwrap();
-    let connection_opts = mysql::Opts::from_url(&db_url).unwrap();
-    let pool = Pool::new(connection_opts).unwrap();
-    let mut conn = pool.get_conn().unwrap();
+    let db_url = env::var("DB_URL")
+        .context("Failed to get DB_URL from env")
+        .unwrap();
+    let connection_opts = mysql::Opts::from_url(&db_url)
+        .context("Failed to parse DB_URL")
+        .unwrap();
+    let pool = Pool::new(connection_opts)
+        .context("Failed to create connection pool")
+        .unwrap();
+    let mut conn = pool
+        .get_conn()
+        .context("Failed to get connection from pool")
+        .unwrap();
 
-    let posts: Vec<PostData> = conn
+    let result_query_posts = conn
         .query_map(
             "SELECT
                 p.ID AS id,
@@ -162,41 +172,62 @@ pub async fn migrate_posts() {
                 image_url,
                 tags,
             },
-        )
-        .unwrap();
+        );
 
-    info!("ok query posts");
-    let client = Client::builder()
-        .min_tls_version(Version::TLS_1_2)
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap();
-    let mut handles = vec![];
-    for post in posts {
-        let client_clone_image = client.clone();
-        let client_clone_post = client.clone();
-        let handle = tokio::spawn(async move {
-            let post_clone = post.clone();
-            let post_sanitize = post.sanitize();
-            let image_post = post_clone.image();
-            let post_reply = send_post(client_clone_post, post_sanitize).await;
-            if let Some(post_saved) = post_reply {
-                info!("Post reply received: {:?}", &post_saved);
-
-                if image_post.len() > 0 {
-                    send_image_post(client_clone_image, &image_post, &post_saved.id).await;
-                    info!("Image sent");
-                } else {
-                    info!("No image found")
-                }
-            } else {
-                info!("No post reply received");
-            }
-        });
-        handles.push(handle);
+    match result_query_posts {
+        Ok(res) => {
+            let posts: Vec<PostData> = res;            
+            info!("ok query posts");
+            return Ok(posts)
+        },
+        Err(message) => {
+            error!("Fail to query posts: {}", message);
+            Err(String::from("fail to query posts"))
+        }
     }
+}
 
-    for handle in handles {
-        handle.await.unwrap();
+
+pub async fn migrate_posts() {
+    match get_posts().await {
+        Ok(posts) => {
+            info!("found {} posts from database", posts.len());
+            let client = Client::builder()
+                .min_tls_version(Version::TLS_1_2)
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap();
+            let mut handles = vec![];
+            for post in posts {
+                let client_clone_image = client.clone();
+                let client_clone_post = client.clone();
+                let handle = tokio::spawn(async move {
+                    let post_clone = post.clone();
+                    let post_sanitize = post.sanitize();
+                    let image_post = post_clone.image();
+                    let post_reply = send_post(client_clone_post, post_sanitize).await;
+                    if let Some(post_saved) = post_reply {
+                        info!("Post reply received: {:?}", &post_saved);
+
+                        if image_post.len() > 0 {
+                            send_image_post(client_clone_image, &image_post, &post_saved.id).await;
+                            info!("Image sent");
+                        } else {
+                            info!("No image found")
+                        }
+                    } else {
+                        info!("No post reply received");
+                    }
+                });
+                handles.push(handle);
+            }
+
+            for handle in handles {
+                handle.await.unwrap();
+            }
+    }
+    Err(message) => {
+        error!("Posts not found: {:?}", message);
+    }
     }
 }
