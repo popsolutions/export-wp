@@ -19,6 +19,6 @@ async fn main() {
     test_db_connection().await;
     heathcheck().await;
     migrate_authors().await;
-    migrate_tags().await;
-    migrate_posts().await;
+    // migrate_tags().await;
+    // migrate_posts().await;
 }

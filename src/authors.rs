@@ -18,8 +18,6 @@ struct AuthorPost {
     login: String,
     password: String,
     created_at: String,
-    profile_image_url: String,
-    edit_image: String,
     image_url: Option<String>,
 }
 
@@ -50,7 +48,7 @@ impl AuthorPost {
     }
 }
 
-async fn send_author(client: Client, author_data: AuthorPost) {
+async fn send_author(client: Client, author_data: AuthorPost) -> Result<(), String> {
     dotenv().ok();
     let token = env::var("API_TOKEN")
         .context("Failed to get API_TOKEN from env")
@@ -82,6 +80,7 @@ async fn send_author(client: Client, author_data: AuthorPost) {
         Ok(response) if response.status().is_success() => {
             info!("request send");
             println!("Autor enviado com sucesso: {}", author_data.name);
+            Ok(())
         }
         Ok(response) if response.status().is_client_error() => {
             error!("request client: {:?}", &author_data);
@@ -89,6 +88,7 @@ async fn send_author(client: Client, author_data: AuthorPost) {
                 "Falha ao enviar autor: {} - Status: {:?}",
                 author_data.name, response
             );
+            Err(String::from("Fail to env"))
         }
         Ok(response) if response.status().is_server_error() => {
             error!("request server error: {:?}", &author_data);
@@ -96,14 +96,17 @@ async fn send_author(client: Client, author_data: AuthorPost) {
                 "Falha ao enviar autor: {} - Status: {:?}",
                 author_data.name, response
             );
+            Err(String::from("Fail to env"))
         }
 
         Ok(_) => {
             error!("request not mapped error: {:?}", &res);
+            Err(String::from("request not mapped"))
         }
         Err(e) => {
             error!("request error: {:?}", &e);
             eprintln!("Erro ao enviar autor: {} - Erro: {:?}", author_data.name, e);
+            Err(String::from("error request"))
         }
     }
 }
@@ -133,8 +136,7 @@ async fn get_authors() -> Result<Vec<AuthorPost>, String> {
                     u.user_login AS login,
                     u.user_pass AS password,
                     u.user_registered AS created_at,
-                    MAX(CASE WHEN um.meta_key = 'molongui_author_image_url' THEN um.meta_value END) AS profile_image_url,
-                    MAX(CASE WHEN um.meta_key = 'molongui_author_image_edit' THEN um.meta_value END) AS profile_image_edit_url
+                    (SELECT meta_value FROM wp_usermeta WHERE user_id = u.ID AND meta_key = 'molongui_author_image_url') AS profile_image_url
                 FROM
                     wp_users u
                 JOIN
@@ -144,17 +146,18 @@ async fn get_authors() -> Result<Vec<AuthorPost>, String> {
                 WHERE
                     p.post_type = 'post' AND
                     p.post_status = 'publish' AND
-                    (um.meta_key = 'molongui_author_image_url' OR um.meta_key = 'molongui_author_image_edit')",
-            |(id, name, email, login, password, created_at, profile_image_url, profile_image_edit_url)| AuthorPost {
+                    u.user_email IS NOT NULL AND
+                    u.user_email <> ''
+                ",
+            |(id, name, email, login, password, created_at, profile_image_url): (i32, String, String, String, String, String, Option<String>)|
+            AuthorPost {
                 id,
                 name,
                 email,
                 login,
                 password,
-                created_at,
-                profile_image_url,
-                edit_image: profile_image_edit_url,
-                image_url: None,
+                created_at,                
+                image_url: profile_image_url,
             },
         );
     match result_query_authors {
@@ -180,25 +183,62 @@ pub async fn migrate_authors() {
                 .build()
                 .unwrap();
             let mut handles = vec![];
+
             for author in authors {
                 let client_clone = client.clone();
                 let client_clone_image = client.clone();
 
-                let response_image = send_image_author(client_clone_image, &author.profile_image_url, author.id.to_string()).await.unwrap();
-                info!("Image sent: {:?}", response_image);
-                let author_update = author.update_image(response_image.image);
+                // Spawn uma tarefa assíncrona para cada autor
                 let handle = task::spawn(async move {
-                    send_author(client_clone, author_update).await;
+                    // Processar a imagem do autor
+                    let image_right = if let Some(image_url) = &author.image_url {
+                        String::from(image_url)
+                    } else {
+                        String::from("")
+                    };
+
+                    // Enviar a imagem e continuar mesmo se houver erro
+                    let response_image = match send_image_author(client_clone_image, &image_right, author.id.to_string()).await {
+                        Ok(response) => {
+                            info!("Image sent for author {}: {:?}", author.id, response);
+                            Some(response)
+                        }
+                        Err(e) => {
+                            error!("Failed to send image for author {}: {:?}", author.id, e);
+                            None // Pula para o próximo autor se houver erro
+                        }
+                    };
+
+                    // Atualizar o autor com a nova imagem                    
+                    let author_update = if let Some(response_image_res) = response_image {
+                        author.update_image(response_image_res.image)
+                    } else {
+                        author
+                    };
+                    
+                    match send_author(client_clone, author_update).await {
+                        Ok(_) => {
+                            info!("Author updated successfully");
+                        }
+                        Err(e) => {
+                            error!("Failed to update author {:?}", e);
+                        }
+                    }
                 });
+
                 handles.push(handle);
             }
 
+            // Aguardar a conclusão de todas as tarefas
             for handle in handles {
-                handle.await.unwrap();
+                if let Err(e) = handle.await {
+                    error!("Task failed: {:?}", e);
+                }
             }
         }
         Err(message) => {
-            error!("Authors not found: {:?}",  message);
+            error!("Authors not found: {:?}", message);
         }
     }
 }
+
