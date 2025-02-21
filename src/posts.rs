@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{error, info};
 
-use crate::image::send_image;
+use crate::image::send_image_post;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PostReply {
@@ -184,7 +184,7 @@ pub async fn migrate_posts() {
                 info!("Post reply received: {:?}", &post_saved);
 
                 if image_post.len() > 0 {
-                    send_image(client_clone_image, &image_post, &post_saved.id).await;
+                    send_image_post(client_clone_image, &image_post, &post_saved.id).await;
                     info!("Image sent");
                 } else {
                     info!("No image found")
