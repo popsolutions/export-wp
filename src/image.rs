@@ -133,7 +133,6 @@ pub async fn send_image(client: Client, image: &str) -> Result<ImageReply> {
                     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
                     let json_payload = serde_json::to_string(&image_post)?;
-                    info!("JSON payload: {}", json_payload);
 
                     let res = client.post(&url_req).headers(headers).json(&image_post).send().await;
                     match res {

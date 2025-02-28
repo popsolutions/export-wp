@@ -231,9 +231,8 @@ async fn process_post(client: Client, post: PostData)  {
         let post_sanitize = post.sanitize(processed_html);
 
         if let Some(post_saved) = send_post(client_clone_post, post_sanitize).await {
-            info!("Post reply received: {:?}", &post_saved);
-            info!("Post reply received: {:?}", &post_saved);
-            info!("Post clone: {:?}", &post_clone);
+            info!("Post reply received: {:?}", &post_saved.id);
+            info!("Post clone: {:?}", &post_clone.image_url);
             if let Some(image_url) = post_clone.image_url {
                 send_image_post(client_clone_thumb, &image_url, &post_saved.id).await;
                 info!("Image sent");
