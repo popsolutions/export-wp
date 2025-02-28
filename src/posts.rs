@@ -1,14 +1,18 @@
+use crate::image::{send_image, send_image_post};
 use ammonia::clean;
+use anyhow::{Context, Result};
 use dotenv::dotenv;
+use mockall::predicate::*;
 use mysql::{prelude::*, Pool};
+use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
-use reqwest::Client;
 use reqwest::tls::Version;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
+use tokio;
+use tokio::task::JoinHandle;
 use tracing::{error, info};
-
-use crate::image::send_image_post;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PostReply {
@@ -101,18 +105,12 @@ fn text_to_html_paragraphs(input: &str) -> String {
 }
 
 impl PostData {
-    fn sanitize(self) -> Self {
-        let content = text_to_html_paragraphs(&self.html);
-         
+    fn sanitize(self, content: String) -> Self {
+        let content = text_to_html_paragraphs(&content);
+
         Self {
             html: clean(&content),
             ..self
-        }
-    }
-    fn image(self) -> String {
-        match self.image_url {
-            Some(image_res) => image_res,
-            None => String::from(""),
         }
     }
 }
@@ -133,22 +131,24 @@ async fn get_posts() -> Result<Vec<PostData>, String> {
         .context("Failed to get connection from pool")
         .unwrap();
 
-    let result_query_posts = conn
-        .query_map(
-            "SELECT
-                p.ID AS id,
-                p.post_title AS title,
-                p.post_name AS slug,
-                p.post_content AS html,
-                p.post_date AS created_at,
-                p.post_modified AS updated_at,
-                p.post_author AS author_id,
-                img.guid AS image_url,
+    let result_query_posts = conn.query_map(
+        r#"
+            SELECT
+        p.ID AS id,
+        p.post_title AS title,
+        p.post_name AS slug,
+        p.post_content AS html,
+        p.post_date AS created_at,
+        p.post_modified AS updated_at,
+        p.post_author AS author_id,
+        SUBSTRING_INDEX(
+            SUBSTRING_INDEX(
+                SUBSTRING(p.post_content, LOCATE('<img', p.post_content)),
+                'src="', -1),
+                    '"', 1) AS image_url,
                 GROUP_CONCAT(t.name) AS tags
             FROM
                 wp_posts p
-            LEFT JOIN
-                wp_posts img ON img.post_parent = p.ID AND img.post_type = 'attachment' AND img.post_mime_type LIKE 'image/%'
             INNER JOIN
                 wp_term_relationships tr ON p.ID = tr.object_id
             INNER JOIN
@@ -158,28 +158,29 @@ async fn get_posts() -> Result<Vec<PostData>, String> {
             WHERE
                 p.post_type = 'post'
                 AND p.post_status = 'publish'
-                AND p.post_type = 'post'
                 AND tt.taxonomy = 'category'
-            GROUP BY p.ID",
-            |(id, title, slug, html, created_at, updated_at, author_id, image_url, tags)| PostData {
-                id,
-                title,
-                slug,
-                html,
-                created_at,
-                updated_at,
-                author_id,
-                image_url,
-                tags,
-            },
-        );
+                AND p.post_content LIKE '%<img%'
+            GROUP BY
+                p.ID;"#,
+        |(id, title, slug, html, created_at, updated_at, author_id, image_url, tags)| PostData {
+            id,
+            title,
+            slug,
+            html,
+            created_at,
+            updated_at,
+            author_id,
+            image_url,
+            tags,
+        },
+    );
 
     match result_query_posts {
         Ok(res) => {
-            let posts: Vec<PostData> = res;            
+            let posts: Vec<PostData> = res;
             info!("ok query posts");
-            return Ok(posts)
-        },
+            return Ok(posts);
+        }
         Err(message) => {
             error!("Fail to query posts: {}", message);
             Err(String::from("fail to query posts"))
@@ -187,6 +188,66 @@ async fn get_posts() -> Result<Vec<PostData>, String> {
     }
 }
 
+pub async fn process_html(html: String, client: Client) -> String {
+    let regex_image = match Regex::new(r#"<img[^>]+src="([^">]+)"#) {
+        Ok(regex) => regex,
+        Err(err) => {
+            error!("Failed to compile regex: {:?}", err);
+            return html; // Retorna o HTML original se a regex falhar
+        }
+    };
+
+    let mut processed_html = html.clone();
+    for cap in regex_image.captures_iter(&html) {
+        let image_url = match cap.get(1) {
+            Some(url) => url.as_str(),
+            None => continue,
+        };
+
+        match send_image(client.clone(), image_url).await {
+            Ok(image_reply_ok) => {
+                let new_url = format!("__GHOST_URL__{}", image_reply_ok.image);
+                processed_html = processed_html.replace(image_url, &new_url);
+            }
+            Err(err) => {
+                error!("Failed to send image: {:?}", err);
+                // Continua o processamento mesmo se uma imagem falhar
+            }
+        }
+    }
+
+    processed_html
+}
+
+async fn process_post(client: Client, post: PostData)  {
+    let client_clone_image = client.clone();
+    let client_clone_thumb = client.clone();
+    let client_clone_post = client.clone();
+
+    let handle = tokio::spawn(async move {
+        let mut post_clone = post.clone();
+
+        let processed_html = process_html(post.html.to_string(), client_clone_image).await;
+        let post_sanitize = post.sanitize(processed_html);
+
+        if let Some(post_saved) = send_post(client_clone_post, post_sanitize).await {
+            info!("Post reply received: {:?}", &post_saved);
+            info!("Post reply received: {:?}", &post_saved);
+            info!("Post clone: {:?}", &post_clone);
+            if let Some(image_url) = post_clone.image_url {
+                send_image_post(client_clone_thumb, &image_url, &post_saved.id).await;
+                info!("Image sent");
+            } else {
+                info!("No image found")
+            }
+        } else {
+            error!("No post reply received");
+        }
+    });
+    if let Err(err) = handle.await {
+       error!("Task failed: {:?}", err);
+    }
+}
 
 pub async fn migrate_posts() {
     match get_posts().await {
@@ -199,35 +260,21 @@ pub async fn migrate_posts() {
                 .unwrap();
             let mut handles = vec![];
             for post in posts {
-                let client_clone_image = client.clone();
-                let client_clone_post = client.clone();
+                let client_clone = client.clone();
                 let handle = tokio::spawn(async move {
-                    let post_clone = post.clone();
-                    let post_sanitize = post.sanitize();
-                    let image_post = post_clone.image();
-                    let post_reply = send_post(client_clone_post, post_sanitize).await;
-                    if let Some(post_saved) = post_reply {
-                        info!("Post reply received: {:?}", &post_saved);
-
-                        if image_post.len() > 0 {
-                            send_image_post(client_clone_image, &image_post, &post_saved.id).await;
-                            info!("Image sent");
-                        } else {
-                            info!("No image found")
-                        }
-                    } else {
-                        info!("No post reply received");
-                    }
+                    process_post(client_clone, post).await;
                 });
                 handles.push(handle);
             }
-
+            // Aguarda a conclusão da tarefa
             for handle in handles {
-                handle.await.unwrap();
+                if let Err(err) = handle.await {
+                    error!("Fail to send process_migrate_post: {:?}", err);
+                }
             }
-    }
-    Err(message) => {
-        error!("Posts not found: {:?}", message);
-    }
+        }
+        Err(message) => {
+            error!("Posts not found: {:?}", message);
+        }
     }
 }
