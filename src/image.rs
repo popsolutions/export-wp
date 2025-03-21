@@ -11,50 +11,16 @@ use std::path::Path;
 use tracing::{error, info};
 use url::Url;
 
-fn url_to_path(url: &str, root_path: &str) -> Option<String> {
-    // Carrega variáveis do arquivo .env
-    dotenv().ok();
-
-    // Lê a base URL do ambiente
-    let base_url = env::var("DEFAULT_BASE_URL")
-        .expect("Failed to get DEFAULT_BASE_URL from env");
-
-    info!("DEFAULT_BASE_URL: {:?}", env::var("DEFAULT_BASE_URL"));
-    info!("URL_PATTERNS: {:?}", env::var("URL_PATTERNS"));
-
-    // Lê os padrões de URL do ambiente
-    let url_patterns = env::var("URL_PATTERNS").unwrap_or_default();
-    info!("url patterns: {:?}", &url_patterns);
-    let patterns: Vec<(String, String)> = url_patterns
-        .split(',')
-        .filter_map(|pair| {
-            let parts: Vec<&str> = pair.split('|').collect();
-            if parts.len() == 2 {
-                Some((parts[0].to_string(), parts[1].to_string()))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    info!("Processed patterns: {:?}", patterns);
-
-    // Processa a URL com base nos padrões
-    let mut processed_url = url.to_string();
-    for (pattern, replacement) in &patterns {
-        if processed_url.contains(pattern) {
-            processed_url = processed_url.replace(pattern, replacement);
+fn url_to_path(url: &str, base_path: &str) -> Option<String> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        if let Some(index) = url.find("/wp-content") {
+            // Extrai o caminho a partir do índice encontrado
+            let path = &url[index..];
+            // Concatena o caminho base com o caminho extraído
+            return Some(format!("{}{}", base_path, path));
         }
     }
-
-    // Parse da URL processada
-    let parsed_url = Url::parse(&processed_url).ok()?;
-    info!("Processed URL: {:?}", processed_url);
-    info!("Base URL: {:?}", base_url);
-    // Constrói o caminho final
-    let path = parsed_url.path();
-    let full_path = Path::new(root_path).join(path.trim_start_matches('/'));
-    full_path.to_str().map(|s| s.to_string())
+    None
 }
 
 fn image_to_base64(image_path: &str) -> Result<String> {
@@ -261,10 +227,12 @@ pub async fn send_image_post(client: Client, image: &str, post_id: &str) {
     let token = env::var("API_TOKEN").unwrap();
     let api_url = env::var("API_URL").unwrap();
     let url_req = format!("{}/posts/image", &api_url);
-    let image_path_res = url_to_path(image, String::from("/var/www/wordpress").as_str());
+    info!("image to send: {:?}", image);
+    let image_path_res = url_to_path(image, "/var/www/wordpress");
     match image_path_res {
         Some(image_path) => match image_to_base64(image_path.as_str()) {
             Ok(base64) => {
+                info!("image after {}") 
                 let path_image = image_path.replace("/var/www/wordpress", "");
                 let image_post = ImagePost {
                     post_id: String::from(post_id),
@@ -329,12 +297,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_url_to_path() {
-        // Configura variáveis de ambiente temporárias
-        std::env::set_var("DEFAULT_BASE_URL", "www.opiniaosocialista.com.br");
-        std::env::set_var("URL_PATTERNS", "https://pstu.org.br");
-
-        // Entrada simulada
+    fn test_url_to_path_default() {
         let url = "https://www.pstu.org.br/wp-content/uploads/2019/01/o-PINHEIRINHO-facebook.jpg";
         let root_path = "/var/www/wordpress";
 
@@ -347,4 +310,17 @@ mod tests {
         // Verifica o resultado
         assert_eq!(result, expected_path);
     }
+
+    #[test]
+    fn test_url_to_path_new_url() {
+        let url = "http://localhost:8090/wp-content/uploads/2019/01/o-PINHEIRINHO-facebook.jpg";
+        let root_path = "/var/www/wordpress";
+
+        let expected_path = Some("/var/www/wordpress/wp-content/uploads/2019/01/o-PINHEIRINHO-facebook.jpg".to_string());
+
+        let result = url_to_path(url, root_path);
+
+        assert_eq!(result, expected_path);
+    }
+
 }
