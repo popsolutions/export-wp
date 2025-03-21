@@ -26,4 +26,5 @@ url = "2.5.4"
 regex = "1.11.1"
 mockall = "0.13.1"
 mockito = "1.6.1"
+clap = { version = "4.5.31", features = ["derive"] }
 

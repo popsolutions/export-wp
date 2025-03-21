@@ -232,7 +232,6 @@ pub async fn send_image_post(client: Client, image: &str, post_id: &str) {
     match image_path_res {
         Some(image_path) => match image_to_base64(image_path.as_str()) {
             Ok(base64) => {
-                info!("image after {}") 
                 let path_image = image_path.replace("/var/www/wordpress", "");
                 let image_post = ImagePost {
                     post_id: String::from(post_id),
