@@ -689,35 +689,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "export-wp"
-version = "0.1.0"
-dependencies = [
- "ammonia",
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "clap",
- "dotenv",
- "jsonwebtoken",
- "mockall",
- "mockito",
- "mysql",
- "regex",
- "reqwest 0.11.27",
- "reqwest-middleware 0.3.3",
- "reqwest-retry",
- "reqwest-tracing",
- "serde",
- "serde_json",
- "simplelog",
- "tokio",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1457,6 +1428,35 @@ dependencies = [
  "serde",
  "serde_json",
  "simple_asn1",
+]
+
+[[package]]
+name = "killer"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "dotenv",
+ "jsonwebtoken",
+ "mockall",
+ "mockito",
+ "mysql",
+ "regex",
+ "reqwest 0.11.27",
+ "reqwest-middleware 0.3.3",
+ "reqwest-retry",
+ "reqwest-tracing",
+ "serde",
+ "serde_json",
+ "simplelog",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

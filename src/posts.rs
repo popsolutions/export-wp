@@ -1,7 +1,7 @@
-use crate::image::{send_image, send_image_post};
 use ammonia::clean;
 use anyhow::{Context, Result};
 use dotenv::dotenv;
+use killer::process_image_url;
 use mockall::predicate::*;
 use mysql::{prelude::*, Pool};
 use regex::Regex;
@@ -11,7 +11,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
 use tokio;
-use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -204,22 +203,18 @@ pub async fn process_html(html: String, client: Client) -> String {
             None => continue,
         };
 
-        match send_image(client.clone(), image_url).await {
-            Ok(image_reply_ok) => {
-                let new_url = format!("__GHOST_URL__{}", image_reply_ok.image);
-                processed_html = processed_html.replace(image_url, &new_url);
-            }
-            Err(err) => {
-                error!("Failed to send image: {:?}", err);
-                // Continua o processamento mesmo se uma imagem falhar
-            }
-        }
+        let new_url = process_image_url(image_url);
+        info!(
+            "process_html:  image image {} to new_url: {}",
+            image_url, new_url
+        );
+        processed_html = processed_html.replace(image_url, &new_url);
     }
 
     processed_html
 }
 
-async fn process_post(client: Client, post: PostData)  {
+async fn process_post(client: Client, post: PostData) {
     let client_clone_image = client.clone();
     let client_clone_thumb = client.clone();
     let client_clone_post = client.clone();
@@ -233,18 +228,12 @@ async fn process_post(client: Client, post: PostData)  {
         if let Some(post_saved) = send_post(client_clone_post, post_sanitize).await {
             info!("Post reply received: {:?}", &post_saved.id);
             info!("Post clone: {:?}", &post_clone.image_url);
-            if let Some(image_url) = post_clone.image_url {
-                send_image_post(client_clone_thumb, &image_url, &post_saved.id).await;
-                info!("Image sent");
-            } else {
-                info!("No image found")
-            }
         } else {
             error!("No post reply received");
         }
     });
     if let Err(err) = handle.await {
-       error!("Task failed: {:?}", err);
+        error!("Task failed: {:?}", err);
     }
 }
 

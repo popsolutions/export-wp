@@ -8,7 +8,6 @@ use tags::migrate_tags;
 
 mod authors;
 mod health;
-mod image;
 mod posts;
 mod tags;
 mod cli;
@@ -22,23 +21,24 @@ async fn main() {
     let args = Cli::parse();
     match args.command {
         Commands::Authors => {
-            test_db_connection().await;
+            let _ = test_db_connection().await;
             migrate_authors().await;
         },
-        Commands::Connections => {
-            test_db_connection().await;
+        Commands::Test => {
+            let _ = test_db_connection().await;
+            let _ = heathcheck().await;
         },
         Commands::Pages => {
-            test_db_connection().await;
+            let _ = test_db_connection().await;
             //TODO: create migration pages
         },
         Commands::Posts => {
-            test_db_connection().await;
-            migrate_posts();
+            let _ = test_db_connection().await;
+            let _ = migrate_posts().await;
         },
         Commands::Tags => {
-            test_db_connection().await;
-            migrate_tags().await;
+            let _ = test_db_connection().await;
+            let _ = migrate_tags().await;
         }        
 
     }

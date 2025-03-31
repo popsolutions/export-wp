@@ -11,7 +11,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     /// Test Connections
-    Connections,   
+    Test,   
     /// Migration Authors
     Authors,
     /// Migration Tags

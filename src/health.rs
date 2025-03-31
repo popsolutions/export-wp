@@ -8,7 +8,6 @@ use std::env;
 use tracing::{error, info};
 use mysql::{prelude::*, Pool, Opts};
 
-use crate::image::send_image;
 
 pub async fn test_db_connection() -> Result<(), Box<dyn std::error::Error>> {
     if dotenv().is_err() {
@@ -16,7 +15,6 @@ pub async fn test_db_connection() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Arquivo .env não encontrado ou inválido.".into());
     }
 
-    // Tenta obter a variável de ambiente DB_URL
     let db_url = match env::var("DB_URL") {
         Ok(url) => url,
         Err(_) => {
@@ -25,7 +23,7 @@ pub async fn test_db_connection() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let db_url = match env::var("API_URL") {
+    let api_url = match env::var("API_URL") {
         Ok(url) => url,
         Err(_) => {
             error!("Variável de ambiente API_URL não encontrada.");
@@ -33,7 +31,7 @@ pub async fn test_db_connection() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let db_url = match env::var("API_TOKEN") {
+    let api_token = match env::var("API_TOKEN") {
         Ok(url) => url,
         Err(_) => {
             error!("Variável de ambiente API_TOKEN não encontrada.");

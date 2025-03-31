@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use dotenv::dotenv;
+use killer::process_image_url;
 use mysql::{prelude::*, Pool};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::tls::Version;
@@ -8,7 +9,6 @@ use serde::Serialize;
 use std::env;
 use tokio::task;
 use tracing::{error, info};
-use crate::image::send_image_author;
 
 #[derive(Debug, Serialize)]
 struct AuthorPost {
@@ -44,7 +44,6 @@ impl AuthorPost {
             image_url: Some(image),
             ..self
         }
-
     }
 }
 
@@ -156,16 +155,16 @@ async fn get_authors() -> Result<Vec<AuthorPost>, String> {
                 email,
                 login,
                 password,
-                created_at,                
+                created_at,
                 image_url: profile_image_url,
             },
         );
     match result_query_authors {
         Ok(res) => {
-            let authors: Vec<AuthorPost> = res;            
+            let authors: Vec<AuthorPost> = res;
             info!("ok query authors");
-            return Ok(authors)
-        },
+            return Ok(authors);
+        }
         Err(message) => {
             error!("Fail to query author: {}", message);
             Err(String::from("fail to query author"))
@@ -186,37 +185,19 @@ pub async fn migrate_authors() {
 
             for author in authors {
                 let client_clone = client.clone();
-                let client_clone_image = client.clone();
 
-                // Spawn uma tarefa assíncrona para cada autor
                 let handle = task::spawn(async move {
-                    // Processar a imagem do autor
                     let image_right = if let Some(image_url) = &author.image_url {
-                        String::from(image_url)
+                        process_image_url(image_url)
                     } else {
                         String::from("")
                     };
-
-                    // Enviar a imagem e continuar mesmo se houver erro
-                    let response_image = match send_image_author(client_clone_image, &image_right, author.id.to_string()).await {
-                        Ok(response) => {
-                            info!("Image sent for author {}: {:?}", author.id, response);
-                            Some(response)
-                        }
-                        Err(e) => {
-                            error!("Failed to send image for author {}: {:?}", author.id, e);
-                            None // Pula para o próximo autor se houver erro
-                        }
+                    let author_change = AuthorPost {
+                        image_url: Some(image_right),
+                        ..author
                     };
 
-                    // Atualizar o autor com a nova imagem                    
-                    let author_update = if let Some(response_image_res) = response_image {
-                        author.update_image(response_image_res.image)
-                    } else {
-                        author
-                    };
-                    
-                    match send_author(client_clone, author_update).await {
+                    match send_author(client_clone, author_change).await {
                         Ok(_) => {
                             info!("Author updated successfully");
                         }
@@ -241,4 +222,3 @@ pub async fn migrate_authors() {
         }
     }
 }
-
