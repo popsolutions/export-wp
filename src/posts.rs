@@ -106,8 +106,15 @@ fn text_to_html_paragraphs(input: &str) -> String {
 impl PostData {
     fn sanitize(self, content: String) -> Self {
         let content = text_to_html_paragraphs(&content);
+        let some_image_to_process = self.image_url;
+        let image_url = if let Some(image_to_process) = some_image_to_process {
+            process_image_url(&image_to_process)
+        } else {
+            String::from("")
+        };
 
         Self {
+            image_url: Some(image_url),
             html: clean(&content),
             ..self
         }
