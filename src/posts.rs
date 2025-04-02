@@ -225,18 +225,14 @@ pub async fn process_html(html: String, client: Client) -> String {
 
 async fn process_post(client: Client, post: PostData) {
     let client_clone_image = client.clone();
-    let client_clone_thumb = client.clone();
     let client_clone_post = client.clone();
 
     let handle = tokio::spawn(async move {
-        let mut post_clone = post.clone();
-
         let processed_html = process_html(post.html.to_string(), client_clone_image).await;
         let post_sanitize = post.sanitize(processed_html);
 
         if let Some(post_saved) = send_post(client_clone_post, post_sanitize).await {
             info!("Post reply received: {:?}", &post_saved.id);
-            info!("Post clone: {:?}", &post_clone.image_url);
         } else {
             error!("No post reply received");
         }
