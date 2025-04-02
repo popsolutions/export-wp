@@ -140,14 +140,16 @@ async fn get_posts() -> Result<Vec<PostData>, String> {
         p.post_date AS created_at,
         p.post_modified AS updated_at,
         p.post_author AS author_id,
-        SUBSTRING_INDEX(
-            SUBSTRING_INDEX(
-                SUBSTRING(p.post_content, LOCATE('<img', p.post_content)),
-                'src="', -1),
-                    '"', 1) AS image_url,
-                GROUP_CONCAT(t.name) AS tags
+        MAX(CASE WHEN pm.meta_key = '_thumbnail_id' THEN img_meta.meta_value END) AS image_url,
+        GROUP_CONCAT(t.name) AS tags
             FROM
                 wp_posts p
+            LEFT JOIN
+                wp_postmeta pm ON p.ID = pm.post_id AND pm.meta_key = '_thumbnail_id'
+            LEFT JOIN
+                wp_posts img ON img.ID = pm.meta_value
+            LEFT JOIN
+                wp_postmeta img_meta ON img.ID = img_meta.post_id AND img_meta.meta_key = '_wp_attached_file'
             INNER JOIN
                 wp_term_relationships tr ON p.ID = tr.object_id
             INNER JOIN

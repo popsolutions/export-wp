@@ -23,3 +23,11 @@ fn test_process_image_url_optionorg_bkp() {
     let result = process_image_url(image_to_process);
     assert_eq!(result, image_processed);
 }
+
+#[test]
+fn test_process_image_url_withould_domain() {
+    let image_to_process = "2015/10/test.jpg";
+    let image_processed = "/content/images/2015/10/test.jpg";
+    let result = process_image_url(image_to_process);
+    assert_eq!(result, image_processed);
+}

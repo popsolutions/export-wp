@@ -7,7 +7,7 @@ pub fn process_image_url(image_url: &str) -> String {
             new_format.replace("/content/uploads", "/content/images")
         )
     } else {
-        // If "/wp-content/" not found, return the original URL (or handle differently)
-        image_url.to_string()
+        // YYYY/MM/name.file
+        format!("/content/images/{}", image_url)
     }
 }
