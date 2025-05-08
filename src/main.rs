@@ -7,10 +7,10 @@ use posts::migrate_posts;
 use tags::migrate_tags;
 
 mod authors;
+mod cli;
 mod health;
 mod posts;
 mod tags;
-mod cli;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -23,23 +23,23 @@ async fn main() {
         Commands::Authors => {
             let _ = test_db_connection().await;
             migrate_authors().await;
-        },
+        }
         Commands::Test => {
             let _ = test_db_connection().await;
             let _ = heathcheck().await;
-        },
+        }
         Commands::Pages => {
             let _ = test_db_connection().await;
+            // let _ = send_page().await;
             //TODO: create migration pages
-        },
+        }
         Commands::Posts => {
             let _ = test_db_connection().await;
             let _ = migrate_posts().await;
-        },
+        }
         Commands::Tags => {
             let _ = test_db_connection().await;
             let _ = migrate_tags().await;
-        }        
-
+        }
     }
 }

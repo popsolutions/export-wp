@@ -1,19 +1,19 @@
 use ammonia::clean;
 use anyhow::{Context, Result};
 use dotenv::dotenv;
-use killer::process_image_url;
+use killer::{process_image_url, text_to_html_paragraphs};
 use mockall::predicate::*;
 use mysql::{prelude::*, Pool};
 use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::tls::Version;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
 use std::env;
 use tokio;
 use tracing::{error, info};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PostReply {
     id: String,
     title: String,
@@ -82,25 +82,18 @@ async fn send_post(client: Client, post_data: PostData) -> Option<PostReply> {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PostData {
     pub id: u64,
     title: String,
     slug: String,
     html: String,
+    excerpt: String,
     created_at: String,
     updated_at: String,
     author_id: String,
     image_url: Option<String>,
     tags: Option<String>,
-}
-
-fn text_to_html_paragraphs(input: &str) -> String {
-    input
-        .split("\n\n") // Divide o texto em partes por \n\n
-        .map(|paragraph| format!("<p>{}</p>", paragraph.trim())) // Cria os parágrafos
-        .collect::<Vec<String>>() // Coleta os parágrafos em um vetor
-        .join("\n") // Junta os parágrafos com uma quebra de linha
 }
 
 impl PostData {
@@ -144,6 +137,7 @@ async fn get_posts() -> Result<Vec<PostData>, String> {
         p.post_title AS title,
         p.post_name AS slug,
         p.post_content AS html,
+        p.post_excerpt AS excerpt,
         p.post_date AS created_at,
         p.post_modified AS updated_at,
         p.post_author AS author_id,
@@ -170,11 +164,12 @@ async fn get_posts() -> Result<Vec<PostData>, String> {
                 AND p.post_content LIKE '%<img%'
             GROUP BY
                 p.ID;"#,
-        |(id, title, slug, html, created_at, updated_at, author_id, image_url, tags)| PostData {
+        |(id, title, slug, html, excerpt, created_at, updated_at, author_id, image_url, tags)| PostData {
             id,
             title,
             slug,
             html,
+            excerpt,
             created_at,
             updated_at,
             author_id,
