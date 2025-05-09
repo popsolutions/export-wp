@@ -199,7 +199,13 @@ pub async fn process_html(html: String, client: Client) -> String {
             return html; // Retorna o HTML original se a regex falhar
         }
     };
-
+    let regex_pdf = match Regex::new(r#"<a[^>]+href="([^">]+\.pdf)"#) {
+        Ok(regex) => regex,
+        Err(err) => {
+            error!("Failed to compile regex: {:?}", err);
+            return html; // Retorna o HTML original se a regex falhar
+        }
+    };
     let mut processed_html = html.clone();
     for cap in regex_image.captures_iter(&html) {
         let image_url = match cap.get(1) {
@@ -215,6 +221,19 @@ pub async fn process_html(html: String, client: Client) -> String {
         processed_html = processed_html.replace(image_url, &new_url);
     }
 
+    for cap in regex_pdf.captures_iter(&html) {
+        let pdf_url = match cap.get(1) {
+            Some(url) => url.as_str(),
+            None => continue,
+        };
+
+        let new_url = process_image_url(pdf_url);
+        info!(
+            "process_html:  image image {} to new_url: {}",
+            pdf_url, new_url
+        );
+        processed_html = processed_html.replace(pdf_url, &new_url);
+    }
     processed_html
 }
 
