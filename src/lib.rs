@@ -1,4 +1,5 @@
 use lazy_static::lazy_static;
+use rand::Rng;
 use regex::Regex;
 
 pub fn process_image_url(image_url: &str) -> String {
@@ -33,7 +34,9 @@ lazy_static! {
 pub fn text_to_html_paragraphs(text: &str) -> String {
     let mut result = String::new();
     let mut last_end = 0;
-
+    let mut p_count = 0;
+    let mut ad_inserted = false;
+    
     // Encontra todos os blocos especiais
     for cap in BLOCKS.captures_iter(text) {
         let m = cap.get(0).unwrap();
@@ -41,7 +44,16 @@ pub fn text_to_html_paragraphs(text: &str) -> String {
         // Processa o texto antes do bloco especial
         let before_block = &text[last_end..m.start()];
         if !before_block.trim().is_empty() {
-            result.push_str(&wrap_in_paragraphs(before_block));
+            let (processed, count) = wrap_and_count_paragraphs(before_block);
+            result.push_str(&processed);
+            p_count += count;
+            
+            // Insere anúncio antes do 4º parágrafo
+            if p_count >= 3 && count > 0 && !ad_inserted {
+                insert_advertisement(&mut result, &mut p_count);
+                ad_inserted = true;
+            }
+
         }
 
         // Processa o bloco especial
@@ -60,9 +72,12 @@ pub fn text_to_html_paragraphs(text: &str) -> String {
     // Processa o texto restante após o último bloco especial
     let remaining = &text[last_end..];
     if !remaining.trim().is_empty() {
-        result.push_str(&wrap_in_paragraphs(remaining));
+        let (processed, count) = wrap_and_count_paragraphs(remaining);
+        result.push_str(&processed);
+        p_count += count;
     }
-    result = result.replace("<<p", ". <p");
+
+
     result
 }
 
@@ -81,17 +96,32 @@ fn process_caption(caption: &str) -> String {
 }
 
 // Função auxiliar para envolver texto em parágrafos
-fn wrap_in_paragraphs(text: &str) -> String {
+fn wrap_and_count_paragraphs(text: &str) -> (String, usize) {
     let mut result = String::new();
     let paragraphs: Vec<&str> = MULTI_NEWLINE.split(text).collect();
+    let mut count = 0;
 
-    for (i, paragraph) in paragraphs.iter().enumerate() {
+    for paragraph in paragraphs {
         let trimmed = paragraph.trim();
         if !trimmed.is_empty() {
-            let space = if i < paragraphs.len() - 1 { " " } else { "" };
-            result.push_str(&format!("<p>{}</p>{}", trimmed, space));
+            result.push_str(&format!("<p>{}</p>", trimmed));
+            count += 1;
         }
     }
 
-    result
+    (result, count)
 }
+
+fn insert_advertisement(result: &mut String, p_count: &mut usize) {
+    let mut rng = rand::thread_rng();
+    let random_number = rng.gen_range(1..=3);
+    
+    let ad = format!(
+        r#"<a href="/nos-apoie" class="post-anuncio"><img src="/content/images/2025/05/contribua_v{}.jpg" alt="contribua com o opinião socialista" loading="lazy"></a>"#,
+        random_number
+    );
+    
+    result.push_str(&ad);
+    *p_count += 1;
+}
+
